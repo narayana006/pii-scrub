@@ -1,0 +1,8 @@
+Hello,
+
+Thanks for getting in touch. I can see two charges against the card
+<CREDIT_CARD_1> and have refunded the duplicate. A confirmation will be sent
+to <EMAIL_1>; if anything looks wrong we will call you on <PHONE_1>.
+
+For safety, please rotate the access key <API_KEY_1> since it was shared in
+a ticket.

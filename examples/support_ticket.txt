@@ -1,0 +1,16 @@
+Ticket #48213 - billing issue
+
+Hi team,
+
+I'm Dana Whitfield (dana.whitfield@example.com). I was charged twice on my
+Visa 4111 1111 1111 1111 last Friday. You can reach me on +1 (415) 555-0132
+or at my work address d.whitfield@acme-corp.example.
+
+Our integration calls your API from 203.0.113.42 using the access key
+AKIAIOSFODNN7EXAMPLE, and the staging config has password=correct-horse-battery
+in it, in case that helps you find the account.
+
+Please reply to dana.whitfield@example.com.
+
+Thanks,
+Dana
