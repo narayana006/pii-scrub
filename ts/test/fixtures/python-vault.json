@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "entries": {
+    "<EMAIL_1>": "dana.whitfield@example.com",
+    "<CREDIT_CARD_1>": "4111 1111 1111 1111",
+    "<PHONE_1>": "+1 (415) 555-0132",
+    "<EMAIL_2>": "d.whitfield@acme-corp.example",
+    "<IP_1>": "203.0.113.42",
+    "<API_KEY_1>": "AKIAIOSFODNN7EXAMPLE",
+    "<SECRET_1>": "correct-horse-battery"
+  }
+}

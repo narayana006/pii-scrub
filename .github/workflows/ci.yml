@@ -22,3 +22,26 @@ jobs:
         run: python -m pytest -q
       - name: Smoke-test the CLI
         run: pii-scrub scrub examples/support_ticket.txt
+
+  typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ts
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Run the example
+        run: node examples/roundtrip.ts

@@ -2,7 +2,7 @@
 
 Redact PII and secrets before text reaches an LLM, then restore them in the response.
 
-**Status: early but working (v0.1.0).** Detection, reversible placeholders, restore, custom detectors and a CLI all work today and are covered by tests. Detection is pattern-based: it does not find names, postal addresses or other free-form PII. A TypeScript port is not started.
+**Status: early but working (v0.1.0).** Detection, reversible placeholders, restore, custom detectors and a CLI all work today and are covered by tests. A TypeScript port of the library (no CLI) lives in [`ts/`](ts/). Detection is pattern-based: it does not find names, postal addresses or other free-form PII.
 
 ```python
 from pii_scrub import scrub
@@ -178,6 +178,51 @@ for finding in Scrubber().detect(text):
 
 When two detectors overlap, the match that starts first wins, then the longer one, then the detector listed first (custom `extra` detectors come before built-ins).
 
+## TypeScript
+
+The [`ts/`](ts/) directory is a port of the library: the same detectors, placeholder numbering, restore and custom detectors. It has no dependencies, is written in plain TypeScript that Node runs directly (Node 22.18 or newer), and reads and writes the same vault JSON as the Python package. It is not published to npm yet, so use it from a clone:
+
+```bash
+git clone https://github.com/narayana006/pii-scrub
+cd pii-scrub/ts
+npm install        # dev tools only: typescript and @types/node
+npm test
+```
+
+```ts
+import { regexDetector, scrub, Vault } from "./src/index.ts";
+
+const [safe, vault] = scrub("Refund jo@example.com, card 4111 1111 1111 1111");
+// safe === "Refund <EMAIL_1>, card <CREDIT_CARD_1>"
+const answer = vault.restore(reply);
+
+// keep numbering across a conversation, add your own detectors
+const orders = regexDetector("ORDER", String.raw`ORD-\d{4}-\d{5}`);
+const [next] = scrub("ORD-2024-00917 for jo@example.com", { vault, extra: [orders] });
+// next === "<ORDER_1> for <EMAIL_1>"
+
+// same JSON format as Vault.save() in Python
+const copy = Vault.fromJSON(JSON.parse(JSON.stringify(vault)));
+```
+
+```console
+$ node examples/roundtrip.ts
+sent to model : Refund order <ORDER_1> for <EMAIL_1>, card <CREDIT_CARD_1>, phone <PHONE_1>.
+model replied : Refund issued for <ORDER_1>. Receipt sent to <EMAIL_1>.
+after restore : Refund issued for ORD-2024-00917. Receipt sent to jo@example.com.
+```
+
+Differences from the Python API:
+
+- `scrub(text, { vault, detectors, extra })` takes an options object and returns a `[safeText, vault]` pair. Names are camelCase (`regexDetector`, `callableDetector`, `luhnValid`, `vault.placeholderFor`).
+- `regexDetector`'s `group` option takes a group index or a group name. Python `(?i:...)` inline flags are not available in older Node versions, so pass a `RegExp` with the `i` flag instead.
+- `callableDetector` functions return `[start, end]` pairs or strings.
+- There is no CLI and no file helper: use `JSON.stringify(vault)` and `Vault.fromJSON(...)` and store the file yourself, with the same care as the Python vault file.
+- Finding offsets are JavaScript string indices (UTF-16 code units), so they differ from Python's offsets after characters such as emoji. The scrubbed text and restored text are the same.
+- In JavaScript `\w`, `\d` and `\b` only match ASCII, while Python's match any Unicode letter or digit. This only changes behaviour at the edges of a match, for example a phone number written directly after a non-ASCII letter.
+
+The test suite checks that scrubbing `examples/support_ticket.txt` produces exactly the same vault as the Python package.
+
 ## CLI reference
 
 ```text
@@ -199,7 +244,7 @@ pii-scrub detect  [FILE] [--json] [--show] [--fail-on-find] [--only LABELS] [--p
 - [x] Restore originals in model output
 - [x] Custom detectors via regex or callables
 - [x] Python library and command-line tool
-- [ ] TypeScript port
+- [x] TypeScript port of the library (in `ts/`; no CLI, not on npm yet)
 - [ ] Name and address detection (today only through your own custom detector)
 - [ ] National ID formats beyond the US SSN
 - [ ] Streaming restore for token-by-token model output
@@ -221,6 +266,8 @@ Issues and pull requests are welcome, especially new detectors with test cases s
 pip install -e ".[dev]"
 pytest
 ```
+
+For the TypeScript port, `cd ts && npm install && npm test && npm run lint` (the last runs the type checker).
 
 Built and maintained by [Narayana Vemburaj](https://github.com/narayana006).
 

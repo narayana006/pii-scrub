@@ -1,0 +1,26 @@
+{
+  "name": "pii-scrub",
+  "version": "0.1.0",
+  "description": "Redact PII and secrets before text reaches an LLM, then restore them in the response.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Narayana Vemburaj",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narayana006/pii-scrub.git",
+    "directory": "ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": "./src/index.ts",
+  "files": ["src"],
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\"",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}
