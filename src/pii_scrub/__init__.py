@@ -1,7 +1,10 @@
 """Redact PII and secrets from text with reversible placeholders."""
 
 from .detectors import (
+    ADDRESS,
     DEFAULT_DETECTORS,
+    NAME,
+    OPTIONAL_DETECTORS,
     Detector,
     callable_detector,
     luhn_valid,
@@ -11,6 +14,9 @@ from .scrubber import Finding, Scrubber, scrub
 from .vault import Vault
 
 __all__ = [
+    "ADDRESS",
+    "NAME",
+    "OPTIONAL_DETECTORS",
     "DEFAULT_DETECTORS",
     "Detector",
     "Finding",

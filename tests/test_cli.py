@@ -83,3 +83,26 @@ def test_detect_json_show_and_fail_on_find(ticket, capsys):
 def test_missing_vault_file_is_reported(ticket, tmp_path, capsys):
     assert main(["restore", str(ticket), "--vault", str(tmp_path / "nope.json")]) == 2
     assert "pii-scrub:" in capsys.readouterr().err
+
+
+def test_with_flag_enables_name_and_address(tmp_path, capsys):
+    src = tmp_path / "t.txt"
+    src.write_text("Hi, I'm Dana Whitfield at 12 Oak Street.\n")
+    assert main(["scrub", str(src)]) == 0
+    assert capsys.readouterr().out == "Hi, I'm Dana Whitfield at 12 Oak Street.\n"
+    assert main(["scrub", str(src), "--with", "name,address"]) == 0
+    assert capsys.readouterr().out == "Hi, I'm <NAME_1> at <ADDRESS_1>.\n"
+
+
+def test_with_rejects_unknown_label(tmp_path):
+    src = tmp_path / "t.txt"
+    src.write_text("x")
+    with pytest.raises(SystemExit):
+        main(["scrub", str(src), "--with", "EMAIL"])
+
+
+def test_only_accepts_optional_labels(tmp_path, capsys):
+    src = tmp_path / "t.txt"
+    src.write_text("Dr. Jane Smith, jo@example.com\n")
+    assert main(["scrub", str(src), "--only", "NAME"]) == 0
+    assert capsys.readouterr().out == "Dr. <NAME_1>, jo@example.com\n"

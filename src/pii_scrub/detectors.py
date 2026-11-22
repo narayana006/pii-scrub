@@ -224,3 +224,78 @@ DEFAULT_DETECTORS: tuple[Detector, ...] = (
     PHONE,
     SECRET,
 )
+
+
+# --- Optional detectors -----------------------------------------------------
+# Names and street addresses have no fixed shape, so these two rely on context
+# and layout and are NOT part of DEFAULT_DETECTORS: they miss things and can
+# match ordinary text. Opt in with ``Scrubber(extra=[NAME, ADDRESS])`` or
+# ``pii-scrub scrub --with NAME,ADDRESS``.
+
+_NAME_WORD = r"(?:[A-Z]['\u2019][A-Z][a-z]+|[A-Z][a-z]+(?:['\u2019-][A-Z]?[a-z]+)*)"
+_NAME_1_3 = rf"{_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{0,2}}"
+_NAME_2_3 = rf"{_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{1,2}}"
+_NOT_NAMES = frozenset(
+    "team all everyone everybody support sir madam there folks guys friends "
+    "colleagues customer service desk sales billing hello hi dear thanks thank "
+    "regards best sincerely cheers the a an you".split()
+)
+
+
+def _name_valid(candidate: str) -> bool:
+    return not any(word.lower() in _NOT_NAMES for word in candidate.split())
+
+
+_NAME_CONTEXTS = tuple(
+    regex_detector("NAME", pattern, group="value", validator=_name_valid)
+    for pattern in (
+        # Dr. Jane Smith, Mrs Okafor
+        rf"\b(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof)\.?[ \t]+(?P<value>{_NAME_1_3})",
+        # my name is Jane / Name: Jane Smith / customer: Jane Smith
+        rf"(?i:\b(?:my name is|name|customer|contact)\s*(?:is\b|:)?)[ \t]+(?P<value>{_NAME_1_3})\b",
+        # I'm Jane Smith / I am Jane Smith / this is Jane Smith (two or more words)
+        rf"(?i:\b(?:i'm|i am|this is))[ \t]+(?P<value>{_NAME_2_3})\b",
+        # Dear Jane,  Hi Jane Smith!
+        rf"(?i:\b(?:dear|hi|hello))[ \t]+(?P<value>{_NAME_1_3})[ \t]*[,!]",
+        # a name alone on the line after a sign-off
+        rf"(?i:\b(?:thanks|thank you|regards|best regards|kind regards|best|sincerely|cheers)),?[ \t]*\r?\n[ \t]*(?P<value>{_NAME_1_3})[ \t]*$",
+    )
+)
+
+
+def _find_names(text: str) -> Iterator[Span]:
+    seen: set[str] = set()
+    for detector in _NAME_CONTEXTS:
+        for start, end in detector.find(text):
+            name = text[start:end]
+            if name not in seen:
+                seen.add(name)
+    # once a name is known, redact every occurrence of it, not just the one
+    # that had a telltale context
+    for name in sorted(seen, key=len, reverse=True):
+        for match in re.finditer(rf"(?<!\w){re.escape(name)}(?!\w)", text):
+            yield match.span()
+
+
+NAME = Detector("NAME", _find_names)
+
+_STREET_SUFFIX = (
+    r"(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|"
+    r"Way|Place|Pl|Terrace|Ter|Highway|Hwy|Parkway|Pkwy|Circle|Cir|Square|Sq)"
+)
+_STREET_NAME_WORD = r"(?:[A-Z][A-Za-z'.\u2019-]*|\d+(?:st|nd|rd|th))"
+
+# "221B Baker Street", "1600 Pennsylvania Ave NW, Apt 4B, Springfield, IL 62704",
+# "P.O. Box 1234". US-style layout only.
+ADDRESS = regex_detector(
+    "ADDRESS",
+    r"(?<![\w#])(?:"
+    rf"\d{{1,6}}[A-Za-z]?[ \t]+(?:{_STREET_NAME_WORD}[ \t]+){{1,4}}?{_STREET_SUFFIX}\b"
+    r"(?:[ \t]+(?:N|S|E|W|NE|NW|SE|SW)\b)?"
+    r"(?:,?[ \t]+(?:Apt|Apartment|Suite|Ste|Unit|Floor|Fl|#)\.?[ \t]*[\w-]+)?"
+    r"(?:,[ \t]*[A-Z][A-Za-z.' -]*?,[ \t]*[A-Z]{2}[ \t]+\d{5}(?:-\d{4})?)?"
+    r"|P\.?[ \t]?O\.?[ \t]+Box[ \t]+\d+"
+    r")",
+)
+
+OPTIONAL_DETECTORS: dict[str, Detector] = {"NAME": NAME, "ADDRESS": ADDRESS}

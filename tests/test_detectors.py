@@ -156,3 +156,84 @@ def test_callable_detector_rejects_bad_span():
 def test_label_must_be_upper_snake_case():
     with pytest.raises(ValueError):
         regex_detector("order id", r"\d+")
+
+
+# --- optional NAME / ADDRESS detectors --------------------------------------
+
+from pii_scrub import ADDRESS, NAME, scrub  # noqa: E402
+
+
+def opt(text, detector):
+    return [f.value for f in Scrubber([], [detector]).detect(text)]
+
+
+def test_optional_detectors_are_off_by_default():
+    assert found("Dr. Jane Smith lives at 12 Oak Street") == []
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Please ask Dr. Jane Smith to call.", ["Jane Smith"]),
+        ("Mrs Okafor called back.", ["Okafor"]),
+        ("My name is Priya Nair and I need help.", ["Priya Nair"]),
+        ("Hi, I'm Dana Whitfield (dana@example.com).", ["Dana Whitfield"]),
+        ("Dear Samuel O'Brien,\nthanks for writing", ["Samuel O'Brien"]),
+        ("Please advise.\n\nThanks,\nDana\n", ["Dana"]),
+        ("Name: Li Wei\nPlan: pro", ["Li Wei"]),
+    ],
+)
+def test_name_contexts(text, expected):
+    assert opt(text, NAME) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Hi team,\nthe deploy is done",
+        "Hello Everyone, welcome",
+        "This is Monday again",
+        "I'm Fine today",
+        "Dear Sir, we write",
+        "Best practices for rollouts",
+        "nothing to see here",
+    ],
+)
+def test_name_ignores_greetings_and_prose(text):
+    assert opt(text, NAME) == []
+
+
+def test_name_redacts_every_occurrence_once_known():
+    text = "I'm Dana Whitfield. Later: Dana Whitfield again, not Dana Whitfields."
+    assert opt(text, NAME) == ["Dana Whitfield", "Dana Whitfield"]
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "221B Baker Street",
+        "12 Oak St",
+        "1600 Pennsylvania Ave NW",
+        "500 5th Avenue, Suite 1200",
+        "742 Evergreen Terrace, Springfield, IL 62704",
+        "9 W Main Street, Apt 4B, Austin, TX 78701-1234",
+        "P.O. Box 1234",
+    ],
+)
+def test_address(address):
+    assert opt(f"Ship to {address} please.", ADDRESS) == [address]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["We shipped 3 Big Changes today", "call 5 minutes later", "12 lanes of traffic"],
+)
+def test_address_ignores_prose(text):
+    assert opt(text, ADDRESS) == []
+
+
+def test_scrub_with_optional_detectors_round_trips():
+    text = "Hi, I'm Dana Whitfield at 12 Oak Street, mail dana@example.com"
+    safe, vault = scrub(text, extra=[NAME, ADDRESS])
+    assert safe == "Hi, I'm <NAME_1> at <ADDRESS_1>, mail <EMAIL_1>"
+    assert vault.restore(safe) == text

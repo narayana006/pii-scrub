@@ -2,7 +2,7 @@
 
 Redact PII and secrets before text reaches an LLM, then restore them in the response.
 
-**Status: early but working (v0.1.0).** Detection, reversible placeholders, restore, custom detectors and a CLI all work today and are covered by tests. A TypeScript port of the library (no CLI) lives in [`ts/`](ts/). Detection is pattern-based: it does not find names, postal addresses or other free-form PII.
+**Status: early but working (v0.1.0).** Detection, reversible placeholders, restore, custom detectors and a CLI all work today and are covered by tests. A TypeScript port of the library (no CLI) lives in [`ts/`](ts/). Detection is pattern-based. Names and US-style street addresses are available as opt-in, heuristic detectors (see [Names and addresses](#names-and-addresses-opt-in)); other free-form PII is not found.
 
 ```python
 from pii_scrub import scrub
@@ -101,6 +101,28 @@ Columns are `line:column`, label and a masked preview.
 | `<TOKEN_n>` | JSON Web Tokens and `Bearer <token>` values |
 | `<PRIVATE_KEY_n>` | PEM private key blocks |
 | `<SECRET_n>` | The value in assignments such as `password=...`, `API_KEY: ...`, `client_secret = "..."` (8+ characters) |
+
+## Names and addresses (opt-in)
+
+Names and street addresses have no fixed shape, so they are **off by default** and found heuristically. Turn them on with `--with` on the CLI or `extra=` in the library:
+
+```console
+$ echo "Hi, I'm Dana Whitfield at 12 Oak Street, Austin, TX 78701. Thanks,
+Dana" | pii-scrub scrub --with NAME,ADDRESS
+Hi, I'm <NAME_1> at <ADDRESS_1>. Thanks,
+<NAME_2>
+pii-scrub: replaced 3 value(s): ADDRESS 1, NAME 2; no --vault given, so this cannot be restored
+```
+
+```python
+from pii_scrub import ADDRESS, NAME, scrub
+
+safe, vault = scrub(text, extra=[NAME, ADDRESS])
+```
+
+- **NAME** looks for a capitalised name after a cue: an honorific (`Dr. Jane Smith`), `my name is`, `Name:` / `Customer:`, `I'm` / `I am` / `this is` (two or more words), a greeting (`Dear Jane,`), or alone on the line after a sign-off (`Thanks,` then `Dana`). Once a full name has been found, every other occurrence of that exact string is replaced too. Greetings such as `Hi team,` or `Dear Sir,` are ignored.
+- **ADDRESS** matches US-style street addresses (`221B Baker Street`, `1600 Pennsylvania Ave NW`, optional `Apt`/`Suite`, optional `City, ST 12345`) and `P.O. Box 1234`.
+- A name with no cue (for example `Dana` on its own in the middle of a sentence, or `Dana` when only `Dana Whitfield` was found) is missed, and the address pattern does not cover non-US formats. For better coverage plug your own name list or NER model in with `callable_detector`.
 
 ## Library usage
 
@@ -226,14 +248,15 @@ The test suite checks that scrubbing `examples/support_ticket.txt` produces exac
 ## CLI reference
 
 ```text
-pii-scrub scrub   [FILE] [--vault PATH] [-o OUT] [--only LABELS] [--pattern LABEL=REGEX]
+pii-scrub scrub   [FILE] [--vault PATH] [-o OUT] [--only LABELS] [--with LABELS] [--pattern LABEL=REGEX]
 pii-scrub restore [FILE] --vault PATH [-o OUT]
-pii-scrub detect  [FILE] [--json] [--show] [--fail-on-find] [--only LABELS] [--pattern LABEL=REGEX]
+pii-scrub detect  [FILE] [--json] [--show] [--fail-on-find] [--only LABELS] [--with LABELS] [--pattern LABEL=REGEX]
 ```
 
 - `FILE` defaults to stdin, so `cat notes.txt | pii-scrub scrub --vault vault.json` works.
 - `--vault` on `scrub` creates the file, or extends it if it already exists so numbering stays consistent between runs. Without it the output cannot be restored.
 - `--only EMAIL,PHONE` limits the built-in detectors that run.
+- `--with NAME,ADDRESS` adds the opt-in heuristic detectors described above; `--only` also accepts `NAME` and `ADDRESS`.
 - `--pattern 'TICKET=TCK-\d+'` adds a regex detector; repeat it for more.
 - `detect --show` prints full values instead of masked ones; `--fail-on-find` exits with status 1 when anything is found, which is handy in a pre-commit hook or CI step.
 
@@ -245,13 +268,13 @@ pii-scrub detect  [FILE] [--json] [--show] [--fail-on-find] [--only LABELS] [--p
 - [x] Custom detectors via regex or callables
 - [x] Python library and command-line tool
 - [x] TypeScript port of the library (in `ts/`; no CLI, not on npm yet)
-- [ ] Name and address detection (today only through your own custom detector)
+- [x] Name and US street address detection (opt-in, heuristic; see above)
 - [ ] National ID formats beyond the US SSN
 - [ ] Streaming restore for token-by-token model output
 
 ## Limitations
 
-- **Pattern matching only.** Names, street addresses, dates of birth and anything else without a recognisable shape are not detected unless you add a detector for them. Do not treat the output as guaranteed free of personal data.
+- **Pattern matching only.** Names and US street addresses are found only by the opt-in heuristics above; dates of birth and anything else without a recognisable shape are not detected unless you add a detector for them. Do not treat the output as guaranteed free of personal data.
 - **False positives happen.** Any dotted quad of numbers up to 255 is treated as an IP address (so a four-part version number such as `1.2.3.4` is replaced), and a random 16-digit number has a one in ten chance of passing the Luhn check.
 - **False negatives happen.** Phone numbers written without separators and without a leading `+`, unusual national formats, and secrets with no known prefix or `key=value` shape are missed.
 - **Restore needs the placeholder intact.** If the model rewrites `<EMAIL_1>` as `EMAIL_1` or `<email 1>`, it is not restored.

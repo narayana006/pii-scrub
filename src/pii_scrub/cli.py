@@ -10,7 +10,7 @@ import sys
 from typing import Sequence
 
 from . import __version__
-from .detectors import DEFAULT_DETECTORS, Detector, regex_detector
+from .detectors import DEFAULT_DETECTORS, OPTIONAL_DETECTORS, Detector, regex_detector
 from .scrubber import Scrubber
 from .vault import Vault
 
@@ -30,18 +30,30 @@ def _write(path: str | None, text: str) -> None:
         handle.write(text)
 
 
+def _labels(spec: str, known: set[str], option: str) -> set[str]:
+    wanted = {name.strip().upper() for name in spec.split(",") if name.strip()}
+    unknown = sorted(wanted - known)
+    if unknown:
+        raise SystemExit(
+            f"pii-scrub: unknown detector(s) for {option}: {', '.join(unknown)}. "
+            f"Available: {', '.join(sorted(known))}"
+        )
+    return wanted
+
+
 def _build_scrubber(args: argparse.Namespace) -> Scrubber:
     detectors: Sequence[Detector] = DEFAULT_DETECTORS
     if args.only:
-        wanted = {name.strip().upper() for name in args.only.split(",") if name.strip()}
-        known = {detector.label for detector in DEFAULT_DETECTORS}
-        unknown = sorted(wanted - known)
-        if unknown:
-            raise SystemExit(
-                f"pii-scrub: unknown detector(s): {', '.join(unknown)}. "
-                f"Available: {', '.join(sorted(known))}"
-            )
+        known = {d.label for d in DEFAULT_DETECTORS} | set(OPTIONAL_DETECTORS)
+        wanted = _labels(args.only, known, "--only")
         detectors = [d for d in DEFAULT_DETECTORS if d.label in wanted]
+        detectors += [d for label, d in OPTIONAL_DETECTORS.items() if label in wanted]
+    if args.with_:
+        wanted = _labels(args.with_, set(OPTIONAL_DETECTORS), "--with")
+        detectors = list(detectors) + [
+            d for label, d in OPTIONAL_DETECTORS.items()
+            if label in wanted and d not in detectors
+        ]
     extra = []
     for spec in args.pattern or []:
         label, sep, pattern = spec.partition("=")
@@ -134,6 +146,12 @@ def build_parser() -> argparse.ArgumentParser:
             "--only",
             metavar="LABELS",
             help="comma-separated built-in detectors to run, e.g. EMAIL,PHONE",
+        )
+        p.add_argument(
+            "--with",
+            dest="with_",
+            metavar="LABELS",
+            help="also run optional detectors: NAME, ADDRESS (heuristic, off by default)",
         )
         p.add_argument(
             "--pattern",
