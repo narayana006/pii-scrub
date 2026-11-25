@@ -1,6 +1,6 @@
 import pytest
 
-from pii_scrub import Scrubber, callable_detector, luhn_valid, regex_detector
+from pii_scrub import Scrubber, callable_detector, scrub, luhn_valid, regex_detector
 
 
 def found(text, label=None):
@@ -237,3 +237,83 @@ def test_scrub_with_optional_detectors_round_trips():
     safe, vault = scrub(text, extra=[NAME, ADDRESS])
     assert safe == "Hi, I'm <NAME_1> at <ADDRESS_1>, mail <EMAIL_1>"
     assert vault.restore(safe) == text
+
+
+# --- national IDs (opt-in) ---------------------------------------------------
+
+from pii_scrub import AADHAAR, CPF, DNI, NINO, OPTIONAL_DETECTORS, SIN, verhoeff_valid  # noqa: E402
+
+
+def spans(detector, text):
+    return [text[a:b] for a, b in detector.find(text)]
+
+
+def test_verhoeff():
+    assert verhoeff_valid("2363")  # worked example: 236 has check digit 3
+    assert not verhoeff_valid("2364")
+    assert not verhoeff_valid("")
+
+
+def test_national_ids_are_opt_in():
+    text = "2345 6789 0124 529.982.247-25 130 692 544 AB 12 34 56 C 12345678Z"
+    labels = {label for label, _ in found(text)}
+    assert not labels & {"AADHAAR", "CPF", "SIN", "NINO", "DNI"}
+    assert {"AADHAAR", "CPF", "SIN", "NINO", "DNI"} <= set(OPTIONAL_DETECTORS)
+
+
+@pytest.mark.parametrize("value", ["2345 6789 0124", "2345-6789-0124", "234567890124"])
+def test_aadhaar(value):
+    assert spans(AADHAAR, f"id {value}.") == [value]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "2345 6789 0125",  # wrong check digit
+        "1345 6789 0124",  # cannot start with 0 or 1
+        "2345 678901 24",  # odd grouping
+        "2345 6789 0124 5678",  # part of a longer number
+    ],
+)
+def test_aadhaar_rejects(text):
+    assert spans(AADHAAR, text) == []
+
+
+@pytest.mark.parametrize("value", ["529.982.247-25", "52998224725"])
+def test_cpf(value):
+    assert spans(CPF, f"CPF: {value}") == [value]
+
+
+@pytest.mark.parametrize(
+    "text", ["529.982.247-26", "111.111.111-11", "5299822472", "529.982.247-25.1"]
+)
+def test_cpf_rejects(text):
+    assert spans(CPF, text) == []
+
+
+def test_sin():
+    assert spans(SIN, "SIN 130 692 544 and 123-456-782") == ["130 692 544", "123-456-782"]
+    assert spans(SIN, "130 692 545") == []  # fails Luhn
+    assert spans(SIN, "046 454 286") == []  # reserved leading 0
+    assert spans(SIN, "130-692 544") == []  # mixed separators
+
+
+def test_nino():
+    assert spans(NINO, "NI AB 12 34 56 C, or AB123456C") == ["AB 12 34 56 C", "AB123456C"]
+    assert spans(NINO, "BG123456A QQ123456C AB123456E") == []  # unissued prefixes/suffix
+
+
+def test_dni():
+    assert spans(DNI, "DNI 12345678Z and 12345678-Z") == ["12345678Z", "12345678-Z"]
+    assert spans(DNI, "12345678A") == []  # wrong control letter
+
+
+def test_national_ids_via_extra():
+    safe, vault = scrub("Aadhaar 2345 6789 0124, CPF 529.982.247-25", extra=[AADHAAR, CPF])
+    assert safe == "Aadhaar <AADHAAR_1>, CPF <CPF_1>"
+    assert vault.restore(safe) == "Aadhaar 2345 6789 0124, CPF 529.982.247-25"
+
+
+def test_sin_wins_over_phone_when_enabled():
+    safe, _ = scrub("SIN 130 692 544", extra=[SIN])
+    assert safe == "SIN <SIN_1>"

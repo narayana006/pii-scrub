@@ -298,4 +298,104 @@ ADDRESS = regex_detector(
     r")",
 )
 
-OPTIONAL_DETECTORS: dict[str, Detector] = {"NAME": NAME, "ADDRESS": ADDRESS}
+
+# --- National IDs outside the US -------------------------------------------
+# Each of these is opt-in and only reports candidates whose checksum (or, for
+# the UK, whose prefix rules) is valid, which keeps false positives low.
+
+_VERHOEFF_D = (
+    (0, 1, 2, 3, 4, 5, 6, 7, 8, 9), (1, 2, 3, 4, 0, 6, 7, 8, 9, 5),
+    (2, 3, 4, 0, 1, 7, 8, 9, 5, 6), (3, 4, 0, 1, 2, 8, 9, 5, 6, 7),
+    (4, 0, 1, 2, 3, 9, 5, 6, 7, 8), (5, 9, 8, 7, 6, 0, 4, 3, 2, 1),
+    (6, 5, 9, 8, 7, 1, 0, 4, 3, 2), (7, 6, 5, 9, 8, 2, 1, 0, 4, 3),
+    (8, 7, 6, 5, 9, 3, 2, 1, 0, 4), (9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
+)
+_VERHOEFF_P = (
+    (0, 1, 2, 3, 4, 5, 6, 7, 8, 9), (1, 5, 7, 6, 2, 8, 3, 0, 9, 4),
+    (5, 8, 0, 3, 7, 9, 6, 1, 4, 2), (8, 9, 1, 6, 0, 4, 3, 5, 2, 7),
+    (9, 4, 5, 3, 1, 2, 6, 8, 7, 0), (4, 2, 8, 6, 5, 7, 3, 9, 0, 1),
+    (2, 7, 9, 3, 8, 0, 6, 4, 1, 5), (7, 0, 4, 6, 9, 1, 3, 2, 5, 8),
+)
+
+
+def verhoeff_valid(number: str) -> bool:
+    """Return True if the digits in ``number`` pass the Verhoeff checksum."""
+    digits = [int(ch) for ch in number if ch.isdigit()]
+    if not digits:
+        return False
+    check = 0
+    for index, digit in enumerate(reversed(digits)):
+        check = _VERHOEFF_D[check][_VERHOEFF_P[index % 8][digit]]
+    return check == 0
+
+
+def _aadhaar_valid(candidate: str) -> bool:
+    digits = "".join(ch for ch in candidate if ch.isdigit())
+    return len(digits) == 12 and digits[0] in "23456789" and verhoeff_valid(digits)
+
+
+def _cpf_valid(candidate: str) -> bool:
+    digits = [int(ch) for ch in candidate if ch.isdigit()]
+    if len(digits) != 11 or len(set(digits)) == 1:
+        return False
+    for length in (9, 10):
+        total = sum(d * w for d, w in zip(digits[:length], range(length + 1, 1, -1)))
+        if (total * 10 % 11) % 10 != digits[length]:
+            return False
+    return True
+
+
+def _sin_valid(candidate: str) -> bool:
+    digits = "".join(ch for ch in candidate if ch.isdigit())
+    return len(digits) == 9 and digits[0] not in "08" and luhn_valid(digits)
+
+
+def _dni_valid(candidate: str) -> bool:
+    return "TRWAGMYFPDXBNJZSQVHLCKE"[int(candidate[:8]) % 23] == candidate[8].upper()
+
+
+# India: 12 digits starting 2-9, written 1234 5678 9012 or without spaces,
+# Verhoeff-checked.
+AADHAAR = regex_detector(
+    "AADHAAR",
+    r"(?<![\w.+-])(?:[2-9]\d{3}([ -]?)\d{4}\1\d{4})(?![ -]?\d)(?!\w)",
+    validator=_aadhaar_valid,
+)
+
+# Brazil CPF: 123.456.789-09 or 12345678909, check digits verified.
+CPF = regex_detector(
+    "CPF",
+    r"(?<![\w.-])(?:\d{3}\.\d{3}\.\d{3}-\d{2}|\d{11})(?![\w-]|\.\d)",
+    validator=_cpf_valid,
+)
+
+# Canada SIN: 123-456-782 or 123 456 782 (Luhn-checked, first digit not 0 or 8).
+SIN = regex_detector(
+    "SIN",
+    r"(?<![\w.+-])\d{3}([ -])\d{3}\1\d{3}(?![ -]?\d)(?!\w)",
+    validator=_sin_valid,
+)
+
+# UK National Insurance number: AB 12 34 56 C, with the prefixes HMRC never issues excluded.
+NINO = regex_detector(
+    "NINO",
+    r"(?<![\w-])(?!BG|GB|KN|NK|NT|TN|ZZ)[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]"
+    r"(?:[ ]?\d{2}){3}[ ]?[A-D](?![\w-])",
+)
+
+# Spain DNI: 8 digits and a control letter derived from the number.
+DNI = regex_detector(
+    "DNI",
+    r"(?<![\w-])\d{8}-?[A-HJ-NP-TV-Z](?![\w-])",
+    validator=lambda c: _dni_valid(c.replace("-", "")),
+)
+
+OPTIONAL_DETECTORS: dict[str, Detector] = {
+    "NAME": NAME,
+    "ADDRESS": ADDRESS,
+    "AADHAAR": AADHAAR,
+    "CPF": CPF,
+    "SIN": SIN,
+    "NINO": NINO,
+    "DNI": DNI,
+}

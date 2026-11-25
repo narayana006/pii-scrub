@@ -106,3 +106,12 @@ def test_only_accepts_optional_labels(tmp_path, capsys):
     src.write_text("Dr. Jane Smith, jo@example.com\n")
     assert main(["scrub", str(src), "--only", "NAME"]) == 0
     assert capsys.readouterr().out == "Dr. <NAME_1>, jo@example.com\n"
+
+
+def test_with_national_ids(tmp_path, capsys):
+    path = tmp_path / "ids.txt"
+    path.write_text("Aadhaar 2345 6789 0124, SIN 130 692 544, CPF 529.982.247-25\n", encoding="utf-8")
+    assert main(["scrub", str(path), "--with", "AADHAAR,SIN,CPF"]) == 0
+    out, err = capsys.readouterr()
+    assert out == "Aadhaar <AADHAAR_1>, SIN <SIN_1>, CPF <CPF_1>\n"
+    assert "AADHAAR 1, CPF 1, SIN 1" in err

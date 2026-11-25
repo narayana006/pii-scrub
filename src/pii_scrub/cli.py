@@ -50,10 +50,12 @@ def _build_scrubber(args: argparse.Namespace) -> Scrubber:
         detectors += [d for label, d in OPTIONAL_DETECTORS.items() if label in wanted]
     if args.with_:
         wanted = _labels(args.with_, set(OPTIONAL_DETECTORS), "--with")
-        detectors = list(detectors) + [
+        # opt-in detectors are more specific (checksummed IDs), so they go first
+        # and win ties against built-ins such as PHONE
+        detectors = [
             d for label, d in OPTIONAL_DETECTORS.items()
             if label in wanted and d not in detectors
-        ]
+        ] + list(detectors)
     extra = []
     for spec in args.pattern or []:
         label, sep, pattern = spec.partition("=")

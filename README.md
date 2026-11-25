@@ -2,7 +2,7 @@
 
 Redact PII and secrets before text reaches an LLM, then restore them in the response.
 
-**Status: early but working (v0.1.0).** Detection, reversible placeholders, restore, custom detectors and a CLI all work today and are covered by tests. A TypeScript port of the library (no CLI) lives in [`ts/`](ts/). Detection is pattern-based. Names and US-style street addresses are available as opt-in, heuristic detectors (see [Names and addresses](#names-and-addresses-opt-in)); other free-form PII is not found.
+**Status: early but working (v0.1.0).** Detection, reversible placeholders, restore, custom detectors and a CLI all work today and are covered by tests. A TypeScript port of the library (no CLI) lives in [`ts/`](ts/). Detection is pattern-based. Names and US-style street addresses are available as opt-in, heuristic detectors (see [Names and addresses](#names-and-addresses-opt-in)); national IDs from a few other countries are available as opt-in, checksum-validated detectors (see [National IDs](#national-ids-opt-in)); other free-form PII is not found.
 
 ```python
 from pii_scrub import scrub
@@ -123,6 +123,32 @@ safe, vault = scrub(text, extra=[NAME, ADDRESS])
 - **NAME** looks for a capitalised name after a cue: an honorific (`Dr. Jane Smith`), `my name is`, `Name:` / `Customer:`, `I'm` / `I am` / `this is` (two or more words), a greeting (`Dear Jane,`), or alone on the line after a sign-off (`Thanks,` then `Dana`). Once a full name has been found, every other occurrence of that exact string is replaced too. Greetings such as `Hi team,` or `Dear Sir,` are ignored.
 - **ADDRESS** matches US-style street addresses (`221B Baker Street`, `1600 Pennsylvania Ave NW`, optional `Apt`/`Suite`, optional `City, ST 12345`) and `P.O. Box 1234`.
 - A name with no cue (for example `Dana` on its own in the middle of a sentence, or `Dana` when only `Dana Whitfield` was found) is missed, and the address pattern does not cover non-US formats. For better coverage plug your own name list or NER model in with `callable_detector`.
+
+## National IDs (opt-in)
+
+Beyond the US SSN, these formats can be switched on with `--with` or `extra=`. Each one is checked (checksum or issuing rules) before it is reported, so random digit runs are mostly ignored. They are off by default because they are only useful where your data comes from those countries.
+
+| Label | Country and format | Check applied |
+| --- | --- | --- |
+| `AADHAAR` | India, 12 digits starting 2-9, as `2345 6789 0124`, `2345-6789-0124` or unspaced | Verhoeff checksum |
+| `CPF` | Brazil, `529.982.247-25` or `52998224725` | both check digits |
+| `SIN` | Canada, `130 692 544` or `130-692-544` (one separator style) | Luhn, first digit not 0 or 8 |
+| `NINO` | UK National Insurance, `AB 12 34 56 C` or `AB123456C` | unissued prefixes and suffixes rejected (no checksum exists) |
+| `DNI` | Spain, `12345678Z` or `12345678-Z` | control letter |
+
+```console
+$ echo "Aadhaar 2345 6789 0124, CPF 529.982.247-25, SIN 130 692 544" | pii-scrub scrub --with AADHAAR,CPF,SIN
+Aadhaar <AADHAAR_1>, CPF <CPF_1>, SIN <SIN_1>
+pii-scrub: replaced 3 value(s): AADHAAR 1, CPF 1, SIN 1; no --vault given, so this cannot be restored
+```
+
+```python
+from pii_scrub import AADHAAR, CPF, scrub
+
+safe, vault = scrub(text, extra=[AADHAAR, CPF])
+```
+
+Not covered: other countries, IDs written with unusual separators, and the TypeScript port (it only has the default detectors). Without the checksum a NINO match is only as strict as the prefix rules, so an ordinary word like `AB123456C` in a part number would match.
 
 ## Library usage
 
@@ -256,7 +282,7 @@ pii-scrub detect  [FILE] [--json] [--show] [--fail-on-find] [--only LABELS] [--w
 - `FILE` defaults to stdin, so `cat notes.txt | pii-scrub scrub --vault vault.json` works.
 - `--vault` on `scrub` creates the file, or extends it if it already exists so numbering stays consistent between runs. Without it the output cannot be restored.
 - `--only EMAIL,PHONE` limits the built-in detectors that run.
-- `--with NAME,ADDRESS` adds the opt-in heuristic detectors described above; `--only` also accepts `NAME` and `ADDRESS`.
+- `--with NAME,ADDRESS,AADHAAR,...` adds the opt-in detectors described above; `--only` also accepts `NAME` and `ADDRESS`.
 - `--pattern 'TICKET=TCK-\d+'` adds a regex detector; repeat it for more.
 - `detect --show` prints full values instead of masked ones; `--fail-on-find` exits with status 1 when anything is found, which is handy in a pre-commit hook or CI step.
 
@@ -269,7 +295,7 @@ pii-scrub detect  [FILE] [--json] [--show] [--fail-on-find] [--only LABELS] [--w
 - [x] Python library and command-line tool
 - [x] TypeScript port of the library (in `ts/`; no CLI, not on npm yet)
 - [x] Name and US street address detection (opt-in, heuristic; see above)
-- [ ] National ID formats beyond the US SSN
+- [x] National ID formats beyond the US SSN (India Aadhaar, Brazil CPF, Canada SIN, UK NINO, Spain DNI; opt-in, Python only)
 - [ ] Streaming restore for token-by-token model output
 
 ## Limitations
